@@ -1,5 +1,5 @@
 # Smart-escrow contracts
-Baked with <3 by [Jincor](https://ico.jincor.com)
+Baked with <3 by [Jincor](https://github.com/JincorTech)
 
 ## Smart-escrow
 
