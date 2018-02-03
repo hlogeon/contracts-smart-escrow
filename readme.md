@@ -6,8 +6,8 @@ Baked with <3 by [Jincor](https://github.com/JincorTech)
 This contract should receive money from investors(crowdsale) and control phased money spendings raised during token sale by the team. Each next tranche of ETH to the team is allowed only after approval of previous phases by the team with the documents and according to the roadmap.
 
 Settings:
-1. Voting round length
-2. Min number of tokens required for the vote
+1. Voting round length(start time, end time)
+2. Min number of tokens required to participate in round
 3. Percent of positive votes required to succeed(calculated based on fact amount of voters)
 4. Voting reason
 5. Message
@@ -25,6 +25,11 @@ ETH - amount of ETH tranche Value
 A - total supply of all tokens
 
 V - amount of tokens on holders balance
+
+
+## Contract architecture
+We tried to develop as simple and flat contract as we can.
+![Contract hierarchy](https://monosnap.com/file/ewPYQE8tMrGEyBo23K09FAlWGbOiJs.png)
 
 ## How to setup development environment and run tests?
 
