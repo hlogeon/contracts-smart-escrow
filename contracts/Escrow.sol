@@ -2,7 +2,7 @@ pragma solidity ^0.4.13;
 
 import "zeppelin-solidity/contracts/payment/PullPayment.sol";
 import "zeppelin-solidity/contracts/ReentrancyGuard.sol";
-import "zeppelin-solidity/contracts/token/ERC20Basic.sol";
+import "zeppelin-solidity/contracts/token/ERC20/BurnableToken.sol";
 import "zeppelin-solidity/contracts/ownership/Ownable.sol";
 
 contract Escrow is PullPayment, ReentrancyGuard, Ownable {
@@ -22,10 +22,10 @@ contract Escrow is PullPayment, ReentrancyGuard, Ownable {
       uint negative;
       bool result;
       mapping (address => uint) votes; //Votes history
-      mapping (address => uint) refunds;
+      mapping (address => uint) refunds;  //Refunds mapping. The values are in ETH
     }
 
-    enum RoundState { Waiting, Approval, Active, Paused }
+    enum RoundState { Waiting, Approval, Active, Failed }
 
     event InitRound(uint8 round, uint amount, string reason, string message);
     event Approved(address by, uint8 round, uint amount, uint timestamp);
@@ -34,8 +34,10 @@ contract Escrow is PullPayment, ReentrancyGuard, Ownable {
     event RoundStarted(uint8 round, uint amount, uint timestamp);
     event RoundFinshed(uint8 round, uint amount, bool result, uint timestamp);
     event FundsAvailable(address to, uint8 round, uint amount, uint timestamp);
+    event RoundFailed(uint8 round, uint amount, uint timestamp);
 
-    ERC20Basic public token; // Token
+
+    BurnableToken public token; // Token
     address public benificiary; // benificiary of ETH
     address public roundValidator; // Round validator is required to approve the new round creation
 
@@ -46,6 +48,7 @@ contract Escrow is PullPayment, ReentrancyGuard, Ownable {
 
     mapping (uint8 => Round) roundStorage; // Rounds are stored here
     mapping (uint8 => bool) approvedRound; //Round approvals
+    mapping (address => uint) refunds;
 
     modifier onlyBenificiary() {
       require(msg.sender == benificiary);
@@ -56,7 +59,7 @@ contract Escrow is PullPayment, ReentrancyGuard, Ownable {
       Round storage round = roundStorage[currentRound];
       require(round.finishedAt != 0);
       require(!round.result);
-      require(state == RoundState.Waiting);
+      require(state == RoundState.Failed);
       _;
     }
 
@@ -89,9 +92,15 @@ contract Escrow is PullPayment, ReentrancyGuard, Ownable {
 
     // @constructor
     function Escrow(address _token, address _benificiary, address _validator) public {
-      token = ERC20Basic(_token);
+      token = BurnableToken(_token);
       benificiary = _benificiary;
       roundValidator = _validator;
+    }
+
+    //Calculate the rate of ETH per token
+    function ethTokenRate() public returns(uint) {
+      Round memory round = roundStorage[currentRound];
+      return this.balance.div(token.totalSupply());
     }
 
     // Set minimal positive percent for the rounds
@@ -188,31 +197,30 @@ contract Escrow is PullPayment, ReentrancyGuard, Ownable {
       if (positivePercent >= round.positivePercent) {
           round.result = true;
           asyncSend(benificiary, round.ETHAmount);
+          RoundFinshed(currentRound, round.ETHAmount, round.result, now);
           FundsAvailable(benificiary, round.number, round.ETHAmount, now);
+          state = RoundState.Waiting;
       } else {
         round.result = false;
+        RoundFailed(currentRound, round.ETHAmount, now);
+        state = RoundState.Failed;
       }
-      RoundFinshed(currentRound, round.ETHAmount, round.result, now);
-      state = RoundState.Waiting;
     }
 
 
-    // Calculate the reefund voters will get
-    function calculateRefund(uint _tokens, uint _tokenSupply, uint _ethAmount) internal returns(uint) {
-      uint ethPerToken = _ethAmount.div(_tokenSupply);
-      return _tokens.mul(ethPerToken);
-    }
-
-    function getRefund() public onlyFailed {
+    //Receive the tokens and make a refund if prev round failed
+    function tokenFallback(address _sender, address _origin, uint _value, bytes _data) public onlyFailed returns (bool ok) {
+        if (!supportsToken(msg.sender)) return false;
         Round storage round = roundStorage[currentRound];
-        require(round.refunds[msg.sender] == 0);
-        uint refundAmount = calculateRefund(
-          token.balanceOf(msg.sender),
-          token.totalSupply(),
-          round.ETHAmount
-        );
-        round.refunds[msg.sender] = refundAmount;
-        msg.sender.transfer(refundAmount);
+        uint reward = _value * ethTokenRate();
+        round.refunds[_sender] = reward;
+        _sender.send(reward);
+        token.burn(_value);
+      }
+
+    // Check if the token is supported by the contract
+    function supportsToken(address _token) public returns (bool) {
+      return address(token) == _token; //Support only our token
     }
 
 }
